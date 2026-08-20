@@ -12,13 +12,18 @@ program CrabInvaders;
    · Movimiento por segundo, no por frame: corre igual a 60 y a 144 Hz.
    · HUD dibujado en el canvas: una sola fuente de verdad, sin tocar el DOM.
    · preventDefault: la barra espaciadora ya no scrollea la página.
+   · Audio propio con la unidad webaudio: disparo, impacto, daño y fin.
+
+  Requiere que exista ~/pas2js/packages/rtl/src/webaudio.pas . Verificalo con:
+      ls ~/pas2js/packages/rtl/src/webaudio.pas
   ============================================================================= }
 
 {$MODE OBJFPC}
 {$H+}
+{$modeswitch externalclass}   // habilita declarar TAudioCtx
 
 uses
-  JS, Web, SysUtils, Math;
+  Web, webaudio, SysUtils, Math;
 
 // =============================================================================
 // CONSTANTES
@@ -88,6 +93,13 @@ const
 // =============================================================================
 
 type
+  { pas2js NO declara constructor para TJSAudioContext: lo agregamos acá.
+    'external name' significa: en JavaScript esto es new AudioContext(). }
+  TAudioCtx = class external name 'AudioContext' (TJSAudioContext)
+  public
+    constructor New;
+  end;
+
   TEstadoJuego = (ejEspera, ejJugando, ejFin);
 
   TBichoTipo = (btPulgon, btMoscaBlanca, btSaltamontes, btChincheRoja);
@@ -142,6 +154,8 @@ var
   Boton: TCaja;                 // geometría única: se dibuja y se testea de acá
   BotonCaliente: Boolean;       // el mouse está encima
 
+  Audio: TJSAudioContext;       // nil mientras el usuario no haya interactuado
+
 // =============================================================================
 // UTILIDADES
 // =============================================================================
@@ -156,6 +170,93 @@ procedure TextoCentrado(const S: String; Y: Double);
 begin
   Ctx.textAlign := 'center';
   Ctx.fillText(S, ANCHO / 2, Y);
+end;
+
+// =============================================================================
+// AUDIO
+// =============================================================================
+
+{ El navegador NO deja sonar nada hasta que el usuario interactúa con la página.
+  Por eso el contexto se crea recién acá, llamado desde el botón INICIAR o desde
+  la tecla que arranca la partida: ese es el "gesto de usuario" que se exige. }
+procedure IniciarAudio;
+begin
+  if Audio <> nil then
+  begin
+    // Si el navegador lo durmió (pestaña en segundo plano), lo despertamos.
+    if Audio.state = 'suspended' then Audio.resume;
+    Exit;
+  end;
+
+  try
+    Audio := TAudioCtx.New;
+  except
+    Audio := nil;   // sin audio el juego sigue andando: nunca se cae por esto
+  end;
+end;
+
+{ Un solo generador para los cuatro efectos. Un oscilador produce la onda, un
+  nodo de ganancia le da la envolvente (el desvanecido), y se conectan en cadena
+  hasta la salida:  oscilador -> ganancia -> parlantes.
+
+  Forma  : 'sine', 'square', 'sawtooth' o 'triangle'
+  FIni   : frecuencia inicial en Hz
+  FFin   : frecuencia final (barrido); 0 = sin barrido
+  Volumen: 0..1
+  Dur    : duración en segundos
+  Demora : segundos de espera antes de sonar (para encadenar notas) }
+procedure Beep(const Forma: String; FIni, FFin, Volumen, Dur, Demora: Double);
+var
+  Osc: TJSOscillatorNode;
+  Gan: TJSGainNode;
+  T0: Double;
+begin
+  if Audio = nil then Exit;
+
+  T0 := Audio.currentTime + Demora;
+
+  Osc := Audio.createOscillator;
+  Gan := Audio.createGain;
+
+  Osc.type_ := Forma;
+  Osc.frequency.setValueAtTime(FIni, T0);
+
+  { Las rampas exponenciales NO pueden llegar a cero ni cruzarlo: por eso el
+    desvanecido termina en 0.01 y no en 0. Es la trampa clásica de Web Audio. }
+  if FFin > 0 then Osc.frequency.exponentialRampToValueAtTime(FFin, T0 + Dur);
+
+  Gan.gain.setValueAtTime(Volumen, T0);
+  Gan.gain.exponentialRampToValueAtTime(0.01, T0 + Dur);
+
+  Osc.connect(Gan);
+  Gan.connect(Audio.destination);
+
+  Osc.start(T0);
+  Osc.stop(T0 + Dur);
+end;
+
+procedure SonidoLaser;
+begin
+  Beep('sawtooth', 700, 150, 0.12, 0.12, 0);
+end;
+
+procedure SonidoImpacto;
+begin
+  Beep('square', 350, 90, 0.15, 0.08, 0);
+end;
+
+procedure SonidoDanio;
+begin
+  Beep('sawtooth', 150, 40, 0.25, 0.25, 0);
+end;
+
+{ Cuatro notas descendentes, encadenadas con la demora de cada una. }
+procedure SonidoFin;
+begin
+  Beep('triangle', 220, 210, 0.20, 0.15, 0.00);
+  Beep('triangle', 180, 170, 0.20, 0.15, 0.15);
+  Beep('triangle', 140, 130, 0.20, 0.15, 0.30);
+  Beep('triangle',  95,  90, 0.20, 0.25, 0.45);
 end;
 
 // =============================================================================
@@ -282,10 +383,13 @@ begin
   Lasers[segundo].H := LASER_H;
   Lasers[segundo].Velocidad := LASER_VEL;
   Lasers[segundo].Activo := True;
+
+  SonidoLaser;
 end;
 
 procedure IniciarPartida;
 begin
+  IniciarAudio;        // el clic o la tecla que llega acá es el gesto de usuario
   PrepararPartida;
   EstadoJuego := ejJugando;
 end;
@@ -423,10 +527,12 @@ begin
       begin
         Bichos[i].Activo := False;
         if Vidas > 0 then Dec(Vidas);
+        SonidoDanio;
         if Vidas <= 0 then
         begin
           Vidas := 0;
           EstadoJuego := ejFin;
+          SonidoFin;
         end;
       end;
     end;
@@ -443,6 +549,7 @@ begin
           begin
             Lasers[l].Activo := False;
             Dec(Bichos[b].Vida);
+            SonidoImpacto;
 
             if Bichos[b].Vida <= 0 then
             begin
@@ -683,6 +790,7 @@ begin
   Ctx.fillStyle := '#9aa5b5';
   Ctx.font := '14px monospace';
   TextoCentrado('Defendé el bancal: si una plaga toca la tierra, perdés una vida.', 300);
+  TextoCentrado('El sonido se activa al empezar.', 322);
 
   DibujarBoton('INICIAR');
 end;
@@ -764,6 +872,7 @@ begin
   Boton.Y := 350;
   BotonCaliente := False;
 
+  Audio := nil;        // se crea recién con el primer gesto del usuario
   TiempoPrevio := 0;
   PrepararPartida;
   EstadoJuego := ejEspera;      // esperando el botón: no arranca solo

@@ -1742,11 +1742,15 @@ rtl.module("SysUtils",["System","JS"],function () {
     $mod.LongDayNames = $impl.DefaultLongDayNames.slice(0);
   };
 },[]);
+rtl.module("webaudio",["System","SysUtils","JS","weborworker","Web"],function () {
+  "use strict";
+  var $mod = this;
+});
 rtl.module("Math",["System"],function () {
   "use strict";
   var $mod = this;
 });
-rtl.module("program",["System","JS","Web","SysUtils","Math"],function () {
+rtl.module("program",["System","Web","webaudio","SysUtils","Math"],function () {
   "use strict";
   var $mod = this;
   this.ANCHO = 800;
@@ -1900,6 +1904,7 @@ rtl.module("program",["System","JS","Web","SysUtils","Math"],function () {
   this.KeySpace = false;
   this.Boton = this.TCaja.$new();
   this.BotonCaliente = false;
+  this.Audio = null;
   this.PuntoEnCaja = function (PX, PY, C) {
     var Result = false;
     Result = (PX >= C.X) && (PX <= (C.X + C.W)) && (PY >= C.Y) && (PY <= (C.Y + C.H));
@@ -1908,6 +1913,50 @@ rtl.module("program",["System","JS","Web","SysUtils","Math"],function () {
   this.TextoCentrado = function (S, Y) {
     $mod.Ctx.textAlign = "center";
     $mod.Ctx.fillText(S,800 / 2,Y);
+  };
+  this.IniciarAudio = function () {
+    if ($mod.Audio !== null) {
+      if ($mod.Audio.state === "suspended") $mod.Audio.resume();
+      return;
+    };
+    try {
+      $mod.Audio = new AudioContext();
+    } catch ($e) {
+      $mod.Audio = null;
+    };
+  };
+  this.Beep = function (Forma, FIni, FFin, Volumen, Dur, Demora) {
+    var Osc = null;
+    var Gan = null;
+    var T0 = 0.0;
+    if ($mod.Audio === null) return;
+    T0 = $mod.Audio.currentTime + Demora;
+    Osc = $mod.Audio.createOscillator();
+    Gan = $mod.Audio.createGain();
+    Osc.type = Forma;
+    Osc.frequency.setValueAtTime(FIni,T0);
+    if (FFin > 0) Osc.frequency.exponentialRampToValueAtTime(FFin,T0 + Dur);
+    Gan.gain.setValueAtTime(Volumen,T0);
+    Gan.gain.exponentialRampToValueAtTime(0.01,T0 + Dur);
+    Osc.connect(Gan);
+    Gan.connect($mod.Audio.destination);
+    Osc.start(T0);
+    Osc.stop(T0 + Dur);
+  };
+  this.SonidoLaser = function () {
+    $mod.Beep("sawtooth",700,150,0.12,0.12,0);
+  };
+  this.SonidoImpacto = function () {
+    $mod.Beep("square",350,90,0.15,0.08,0);
+  };
+  this.SonidoDanio = function () {
+    $mod.Beep("sawtooth",150,40,0.25,0.25,0);
+  };
+  this.SonidoFin = function () {
+    $mod.Beep("triangle",220,210,0.20,0.15,0.00);
+    $mod.Beep("triangle",180,170,0.20,0.15,0.15);
+    $mod.Beep("triangle",140,130,0.20,0.15,0.30);
+    $mod.Beep("triangle",95,90,0.20,0.25,0.45);
   };
   this.PrepararPartida = function () {
     var i = 0;
@@ -1994,8 +2043,10 @@ rtl.module("program",["System","JS","Web","SysUtils","Math"],function () {
     $mod.Lasers[segundo - 1].H = 20;
     $mod.Lasers[segundo - 1].Velocidad = 540;
     $mod.Lasers[segundo - 1].Activo = true;
+    $mod.SonidoLaser();
   };
   this.IniciarPartida = function () {
+    $mod.IniciarAudio();
     $mod.PrepararPartida();
     $mod.EstadoJuego = $mod.TEstadoJuego.ejJugando;
   };
@@ -2078,15 +2129,18 @@ rtl.module("program",["System","JS","Web","SysUtils","Math"],function () {
       if (($mod.Bichos[i - 1].Y + $mod.Bichos[i - 1].H) >= 430) {
         $mod.Bichos[i - 1].Activo = false;
         if ($mod.Vidas > 0) $mod.Vidas -= 1;
+        $mod.SonidoDanio();
         if ($mod.Vidas <= 0) {
           $mod.Vidas = 0;
           $mod.EstadoJuego = $mod.TEstadoJuego.ejFin;
+          $mod.SonidoFin();
         };
       };
     };
     for (l = 1; l <= 50; l++) if ($mod.Lasers[l - 1].Activo) for (b = 1; b <= 100; b++) if ($mod.Bichos[b - 1].Activo) if (($mod.Lasers[l - 1].X < ($mod.Bichos[b - 1].X + $mod.Bichos[b - 1].W)) && (($mod.Lasers[l - 1].X + $mod.Lasers[l - 1].W) > $mod.Bichos[b - 1].X) && ($mod.Lasers[l - 1].Y < ($mod.Bichos[b - 1].Y + $mod.Bichos[b - 1].H)) && (($mod.Lasers[l - 1].Y + $mod.Lasers[l - 1].H) > $mod.Bichos[b - 1].Y)) {
       $mod.Lasers[l - 1].Activo = false;
       $mod.Bichos[b - 1].Vida -= 1;
+      $mod.SonidoImpacto();
       if ($mod.Bichos[b - 1].Vida <= 0) {
         var $tmp = $mod.Bichos[b - 1].Tipo;
         if ($tmp === $mod.TBichoTipo.btPulgon) {
@@ -2278,6 +2332,7 @@ rtl.module("program",["System","JS","Web","SysUtils","Math"],function () {
     $mod.Ctx.fillStyle = "#9aa5b5";
     $mod.Ctx.font = "14px monospace";
     $mod.TextoCentrado("Defendé el bancal: si una plaga toca la tierra, perdés una vida.",300);
+    $mod.TextoCentrado("El sonido se activa al empezar.",322);
     $mod.DibujarBoton("INICIAR");
   };
   this.DibujarPantallaFin = function () {
@@ -2332,6 +2387,7 @@ rtl.module("program",["System","JS","Web","SysUtils","Math"],function () {
     $mod.Boton.X = (800 - $mod.Boton.W) / 2;
     $mod.Boton.Y = 350;
     $mod.BotonCaliente = false;
+    $mod.Audio = null;
     $mod.TiempoPrevio = 0;
     $mod.PrepararPartida();
     $mod.EstadoJuego = $mod.TEstadoJuego.ejEspera;
