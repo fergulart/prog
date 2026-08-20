@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <!-- Sin este charset, "Puntuación" y "¡FIN DEL JUEGO!" salen rotos:
+         el .js hereda la codificación del documento. -->
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Crab Invaders — The Bancal Defender</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+
+        body {
+            background-color: #0b0f19;
+            color: #fff;
+            font-family: 'Courier New', Courier, monospace;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        h1 {
+            margin-bottom: 14px;
+            font-size: 22px;
+            color: #ff4444;
+            text-shadow: 0 0 10px rgba(255, 68, 68, 0.6);
+            text-align: center;
+            letter-spacing: 1px;
+        }
+
+        #canvas-container {
+            box-shadow: 0 0 25px rgba(0, 255, 150, 0.2);
+            border: 3px solid #2a3447;
+            border-radius: 6px;
+            overflow: hidden;
+        }
+
+        /* El canvas queda en su tamaño real, 800x500.
+           Si lo escalás por CSS, offsetX/offsetY dejan de coincidir con las
+           coordenadas del dibujo y el botón INICIAR se vuelve inclickeable. */
+        canvas {
+            display: block;
+            background-color: #050b14;
+        }
+
+        .pie {
+            margin-top: 14px;
+            color: #6b7684;
+            text-align: center;
+            font-size: 12px;
+            line-height: 1.7;
+        }
+        .pie a { color: #00b894; text-decoration: none; }
+        .pie a:hover { text-decoration: underline; }
+        .pie code { color: #9aa5b5; }
+    </style>
+</head>
+<body>
+
+    <h1>🦀 CRAB INVADERS: THE BANCAL DEFENDER 🌿</h1>
+
+    <div id="canvas-container">
+        <canvas id="gameCanvas" width="800" height="500"></canvas>
+    </div>
+
+    <p class="pie">
+        Fuente: <a href="CrabInvaders.pas">CrabInvaders.pas</a> —
+        transpilado con <code>pas2js -Tbrowser -Jc -Jirtl.js</code><br>
+        GuliaLabs
+    </p>
+
+    <!-- LAS DOS LÍNEAS QUE FALTABAN.
+         1) El canvas ya existe en el DOM cuando se carga este script.
+         2) El .js DEFINE el programa; no ejecuta nada por su cuenta.
+         3) rtl.run() es quien lo arranca. -->
+    <script src="CrabInvaders.js"></script>
+    <script>rtl.run();</script>
+
+</body>
+</html>
