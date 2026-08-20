@@ -1,15 +1,14 @@
 <!DOCTYPE html>
 <html lang="es">
 <head>
+    <!-- Sin este charset, "Puntuación" y "¡FIN DEL JUEGO!" salen rotos:
+         el .js hereda la codificación del documento. -->
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Crab Invaders - Bancal Defender</title>
+    <title>Crab Invaders — The Bancal Defender</title>
     <style>
-        * {
-            box-sizing: border-box;
-            margin: 0;
-            padding: 0;
-        }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+
         body {
             background-color: #0b0f19;
             color: #fff;
@@ -19,499 +18,65 @@
             align-items: center;
             justify-content: center;
             min-height: 100vh;
-            padding: 15px;
-            overflow: hidden;
+            padding: 20px;
         }
-        h1 { 
-            margin-bottom: 10px; 
-            font-size: 22px; 
-            color: #ff4444; 
-            text-shadow: 0 0 10px rgba(255, 68, 68, 0.6); 
+
+        h1 {
+            margin-bottom: 14px;
+            font-size: 22px;
+            color: #ff4444;
+            text-shadow: 0 0 10px rgba(255, 68, 68, 0.6);
             text-align: center;
+            letter-spacing: 1px;
         }
+
         #canvas-container {
-            position: relative;
             box-shadow: 0 0 25px rgba(0, 255, 150, 0.2);
             border: 3px solid #2a3447;
             border-radius: 6px;
             overflow: hidden;
         }
+
+        /* El canvas queda en su tamaño real, 800x500.
+           Si lo escalás por CSS, offsetX/offsetY dejan de coincidir con las
+           coordenadas del dibujo y el botón INICIAR se vuelve inclickeable. */
         canvas {
-            background-color: #050b14;
             display: block;
+            background-color: #050b14;
         }
-        .ui-panel {
-            display: flex;
-            justify-content: space-between;
-            width: 800px;
-            background: #151d2a;
-            padding: 12px 20px;
-            border-radius: 0 0 6px 6px;
-            border: 3px solid #2a3447;
-            border-top: none;
-        }
-        .stat { 
-            font-size: 16px; 
-            font-weight: bold;
-            color: #00ffcc; 
-        }
-        .instructions {
-            margin-top: 12px;
-            color: #9aa5b5;
+
+        .pie {
+            margin-top: 14px;
+            color: #6b7684;
             text-align: center;
-            font-size: 13px;
-            max-width: 750px;
-            line-height: 1.5;
+            font-size: 12px;
+            line-height: 1.7;
         }
-        .highlight { color: #ff00ff; font-weight: bold; }
-        .highlight-laser { color: #00ffff; font-weight: bold; }
-        .highlight-audio { color: #ffcc00; font-weight: bold; }
+        .pie a { color: #00b894; text-decoration: none; }
+        .pie a:hover { text-decoration: underline; }
+        .pie code { color: #9aa5b5; }
     </style>
 </head>
 <body>
 
-    <h1>🦀 CRAB INVADERS: EL BANCAL DEFENDER 🌿</h1>
-    
+    <h1>🦀 CRAB INVADERS: THE BANCAL DEFENDER 🌿</h1>
+
     <div id="canvas-container">
         <canvas id="gameCanvas" width="800" height="500"></canvas>
     </div>
 
-    <div class="ui-panel">
-        <div class="stat">PUNTOS: <span id="score">0</span></div>
-        <div class="stat" style="color:#ff4444;">VIDAS: <span id="lives">3</span></div>
-        <div class="stat" style="color:#aaffaa;">PLAGAS ELIMINADAS: <span id="kills">0</span></div>
-    </div>
+    <p class="pie">
+        Fuente: <a href="CrabInvaders.pas">CrabInvaders.pas</a> —
+        transpilado con <code>pas2js -Tbrowser -Jc -Jirtl.js</code><br>
+        GuliaLabs
+    </p>
 
-    <div class="instructions">
-        [Mover]: <b>Flechas Izquierda / Derecha</b> &nbsp;|&nbsp; [Disparo]: <span class="highlight-laser">Barra Espaciadora (Hacia Arriba)</span><br>
-        <span class="highlight-audio">🔊 Sonido Web Audio API</span> (presiona cualquier tecla para activar audio).<br>
-        El cangrejo se desplaza sobre el <span class="highlight">bancal inferior</span> para defenderlo de las plagas que descienden.
-    </div>
+    <!-- LAS DOS LÍNEAS QUE FALTABAN.
+         1) El canvas ya existe en el DOM cuando se carga este script.
+         2) El .js DEFINE el programa; no ejecuta nada por su cuenta.
+         3) rtl.run() es quien lo arranca. -->
+    <script src="CrabInvaders.js"></script>
+    <script>rtl.run();</script>
 
-<script>
-// --- AUDIO SYNTHESIZER ---
-let audioCtx = null;
-
-function initAudio() {
-    if (!audioCtx) {
-        const AudioContextClass = window.AudioContext || window.webkitAudioContext;
-        if (AudioContextClass) {
-            audioCtx = new AudioContextClass();
-        }
-    }
-    if (audioCtx && audioCtx.state === 'suspended') {
-        audioCtx.resume();
-    }
-}
-
-function playLaserSound() {
-    if (!audioCtx) return;
-    try {
-        let osc = audioCtx.createOscillator();
-        let gain = audioCtx.createGain();
-        osc.type = 'sawtooth';
-        osc.frequency.setValueAtTime(700, audioCtx.currentTime);
-        osc.frequency.exponentialRampToValueAtTime(150, audioCtx.currentTime + 0.12);
-        
-        gain.gain.setValueAtTime(0.12, audioCtx.currentTime);
-        gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.12);
-        
-        osc.connect(gain);
-        gain.connect(audioCtx.destination);
-        osc.start();
-        osc.stop(audioCtx.currentTime + 0.12);
-    } catch(e) {}
-}
-
-function playHitSound() {
-    if (!audioCtx) return;
-    try {
-        let osc = audioCtx.createOscillator();
-        let gain = audioCtx.createGain();
-        osc.type = 'square';
-        osc.frequency.setValueAtTime(350, audioCtx.currentTime);
-        osc.frequency.exponentialRampToValueAtTime(90, audioCtx.currentTime + 0.08);
-        
-        gain.gain.setValueAtTime(0.15, audioCtx.currentTime);
-        gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.08);
-        
-        osc.connect(gain);
-        gain.connect(audioCtx.destination);
-        osc.start();
-        osc.stop(audioCtx.currentTime + 0.08);
-    } catch(e) {}
-}
-
-function playDamageSound() {
-    if (!audioCtx) return;
-    try {
-        let osc = audioCtx.createOscillator();
-        let gain = audioCtx.createGain();
-        osc.type = 'sawtooth';
-        osc.frequency.setValueAtTime(150, audioCtx.currentTime);
-        osc.frequency.linearRampToValueAtTime(40, audioCtx.currentTime + 0.25);
-        
-        gain.gain.setValueAtTime(0.25, audioCtx.currentTime);
-        gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.25);
-        
-        osc.connect(gain);
-        gain.connect(audioCtx.destination);
-        osc.start();
-        osc.stop(audioCtx.currentTime + 0.25);
-    } catch(e) {}
-}
-
-function playGameOverSound() {
-    if (!audioCtx) return;
-    try {
-        const notes = [220, 180, 140, 95];
-        notes.forEach((freq, idx) => {
-            let osc = audioCtx.createOscillator();
-            let gain = audioCtx.createGain();
-            osc.type = 'triangle';
-            osc.frequency.setValueAtTime(freq, audioCtx.currentTime + idx * 0.15);
-            
-            gain.gain.setValueAtTime(0.2, audioCtx.currentTime + idx * 0.15);
-            gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + (idx + 1) * 0.15);
-            
-            osc.connect(gain);
-            gain.connect(audioCtx.destination);
-            osc.start(audioCtx.currentTime + idx * 0.15);
-            osc.stop(audioCtx.currentTime + (idx + 1) * 0.15);
-        });
-    } catch(e) {}
-}
-
-// --- JUEGO ---
-const MAX_BUG_TYPES = 4;
-const CANVAS_WIDTH = 800;
-const CANVAS_HEIGHT = 500;
-
-let Cangrejo = {
-    X: 370,
-    Y: 380,
-    W: 60,
-    H: 50,
-    Velocidad: 6,
-    Color: '#e63232',
-    ColorPinza: '#b41e1e',
-    ColorLaserOjo: '#00ccff'
-};
-
-let Lasers = []; 
-let Bichos = []; 
-
-let Score = 0;
-let Vidas = 3;
-let PlagasEliminadas = 0;
-let SpawnTimer = 0;
-let Teclas = {};
-let GameRunning = true;
-
-const canvas = document.getElementById('gameCanvas');
-const ctx = canvas.getContext('2d');
-
-window.addEventListener('keydown', (e) => { 
-    initAudio();
-    Teclas[e.code] = true; 
-    
-    if (!GameRunning && e.code === 'KeyR') {
-        Score = 0;
-        Vidas = 3;
-        PlagasEliminadas = 0;
-        Bichos = [];
-        Lasers = [];
-        GameRunning = true;
-        document.getElementById('score').innerText = Score;
-        document.getElementById('lives').innerText = Vidas;
-        document.getElementById('kills').innerText = PlagasEliminadas;
-    }
-});
-
-window.addEventListener('keyup', (e) => { 
-    Teclas[e.code] = false; 
-});
-
-function SpawnInsecto() {
-    let arbolOrigen = Math.random() < 0.5 ? 0 : 1;
-    let spawnX = arbolOrigen === 0 ? 50 + Math.random()*60 : 690 + Math.random()*60;
-    let spawnY = 30 + Math.random()*20;
-    
-    let randomType = Math.floor(Math.random() * MAX_BUG_TYPES);
-    let tipo = 'Pulgon';
-    let color = '#3ae33a'; 
-    let vida = 1;
-    let velX = (arbolOrigen === 0 ? 1 : -1) * (0.5 + Math.random() * 1.5);
-    let velY = 0.6 + Math.random() * 0.8;
-    
-    switch(randomType) {
-        case 0:
-            tipo = 'Pulgon';
-            color = '#3ae33a';
-            vida = 1;
-            break;
-        case 1:
-            tipo = 'MoscaBlanca';
-            color = '#ffffff';
-            vida = 1;
-            velX *= 1.5; 
-            break;
-        case 2:
-            tipo = 'Saltamontes';
-            color = '#eedd22';
-            vida = 2; 
-            velY *= 0.7; 
-            break;
-        case 3:
-            tipo = 'ChincheRoja';
-            color = '#ff2222';
-            vida = 1;
-            break;
-    }
-    
-    Bichos.push({
-        X: spawnX,
-        Y: spawnY,
-        W: 24,
-        H: 24,
-        Tipo: tipo,
-        Color: color,
-        Vida: vida,
-        MaxVida: vida,
-        VelX: velX,
-        VelY: velY,
-        FaseZigZag: Math.random() * 10
-    });
-}
-
-function LeerTeclado() {
-    if (Teclas['ArrowLeft'] && Cangrejo.X > 10) {
-        Cangrejo.X -= Cangrejo.Velocidad;
-    }
-    if (Teclas['ArrowRight'] && Cangrejo.X < CANVAS_WIDTH - Cangrejo.W - 10) {
-        Cangrejo.X += Cangrejo.Velocidad;
-    }
-    if (Teclas['Space']) {
-        if (Lasers.length === 0 || Lasers[Lasers.length - 1].Y < Cangrejo.Y - 110) {
-            Lasers.push({ X: Cangrejo.X + 16, Y: Cangrejo.Y + 10, W: 4, H: 20, Velocidad: 9 });
-            Lasers.push({ X: Cangrejo.X + Cangrejo.W - 20, Y: Cangrejo.Y + 10, W: 4, H: 20, Velocidad: 9 });
-            playLaserSound();
-            Teclas['Space'] = false; 
-        }
-    }
-}
-
-function ActualizarPosiciones() {
-    for (let i = Lasers.length - 1; i >= 0; i--) {
-        Lasers[i].Y -= Lasers[i].Velocidad;
-        if (Lasers[i].Y + Lasers[i].H < 0) {
-            Lasers.splice(i, 1); 
-        }
-    }
-    
-    SpawnTimer++;
-    let spawnRate = Math.max(30, 90 - Math.floor(PlagasEliminadas / 5) * 5); 
-    if (SpawnTimer >= spawnRate) {
-        SpawnInsecto();
-        SpawnTimer = 0;
-    }
-    
-    for (let i = Bichos.length - 1; i >= 0; i--) {
-        let b = Bichos[i];
-        b.Y += b.VelY;
-        
-        if (b.Tipo === 'MoscaBlanca') {
-            b.FaseZigZag += 0.1;
-            b.X += Math.sin(b.FaseZigZag) * 2; 
-        } else {
-            b.X += b.VelX;
-            if (b.X < 20 || b.X > CANVAS_WIDTH - 20) {
-                b.VelX *= -1;
-            }
-        }
-        
-        if (b.Y > 390) {
-            Bichos.splice(i, 1);
-            Vidas--;
-            playDamageSound();
-            document.getElementById('lives').innerText = Vidas;
-            if (Vidas <= 0) {
-                GameRunning = false;
-                playGameOverSound();
-            }
-        }
-    }
-}
-
-function DetectarColisiones() {
-    for (let l = Lasers.length - 1; l >= 0; l--) {
-        let laser = Lasers[l];
-        for (let b = Bichos.length - 1; b >= 0; b--) {
-            let bicho = Bichos[b];
-            
-            if (laser.X < bicho.X + bicho.W &&
-                laser.X + laser.W > bicho.X &&
-                laser.Y < bicho.Y + bicho.H &&
-                laser.Y + laser.H > bicho.Y) {
-                
-                Lasers.splice(l, 1);
-                bicho.Vida--;
-                playHitSound();
-                
-                if (bicho.Vida <= 0) {
-                    if (bicho.Tipo === 'Pulgon') Score += 10;
-                    else if (bicho.Tipo === 'MoscaBlanca') Score += 20;
-                    else if (bicho.Tipo === 'Saltamontes') Score += 30;
-                    else if (bicho.Tipo === 'ChincheRoja') Score += 45;
-                    
-                    Bichos.splice(b, 1);
-                    PlagasEliminadas++;
-                    
-                    document.getElementById('score').innerText = Score;
-                    document.getElementById('kills').innerText = PlagasEliminadas;
-                }
-                break; 
-            }
-        }
-    }
-}
-
-function DibujarPantalla() {
-    // Fondo
-    ctx.fillStyle = '#091524';
-    ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
-    
-    // Árboles
-    ctx.fillStyle = '#5c4033';
-    ctx.fillRect(0, 0, 40, 120); 
-    ctx.fillStyle = '#145214';
-    ctx.beginPath(); ctx.arc(40, 60, 60, 0, Math.PI * 2); ctx.fill(); 
-    
-    ctx.fillStyle = '#5c4033';
-    ctx.fillRect(CANVAS_WIDTH - 40, 0, 40, 120);
-    ctx.fillStyle = '#145214';
-    ctx.beginPath(); ctx.arc(CANVAS_WIDTH - 40, 60, 60, 0, Math.PI * 2); ctx.fill();
-
-    // BANCAL
-    ctx.fillStyle = '#5a3d28'; 
-    ctx.fillRect(30, 430, 740, 70); 
-    ctx.fillStyle = '#3d2516'; 
-    ctx.fillRect(40, 438, 720, 62); 
-    
-    // Cultivos
-    for (let xPos = 70; xPos < 750; xPos += 55) {
-        ctx.fillStyle = '#228b22';
-        ctx.fillRect(xPos, 442, 6, 30);
-        ctx.fillStyle = '#ff2222'; 
-        ctx.beginPath(); ctx.arc(xPos - 3, 452, 4, 0, Math.PI*2); ctx.fill();
-        ctx.beginPath(); ctx.arc(xPos + 8, 462, 4, 0, Math.PI*2); ctx.fill();
-        ctx.fillStyle = '#52c652';
-        ctx.beginPath(); ctx.arc(xPos + 20, 470, 10, 0, Math.PI*2); ctx.fill();
-        ctx.fillStyle = '#2eb82e';
-        ctx.beginPath(); ctx.arc(xPos + 20, 470, 6, 0, Math.PI*2); ctx.fill();
-    }
-
-    // CANGREJO
-    let cx = Cangrejo.X;
-    let cy = Cangrejo.Y;
-    
-    ctx.strokeStyle = Cangrejo.ColorPinza;
-    ctx.lineWidth = 4;
-    for(let offset of [-12, -4, 4, 12]) {
-        ctx.beginPath(); ctx.moveTo(cx + 15, cy + 35); ctx.lineTo(cx + offset, cy + 52); ctx.stroke();
-        ctx.beginPath(); ctx.moveTo(cx + Cangrejo.W - 15, cy + 35); ctx.lineTo(cx + Cangrejo.W - offset, cy + 52); ctx.stroke();
-    }
-    
-    ctx.fillStyle = Cangrejo.ColorPinza;
-    ctx.fillRect(cx - 14, cy + 6, 16, 26); 
-    ctx.fillRect(cx - 20, cy - 12, 18, 20); 
-    ctx.fillStyle = Cangrejo.Color;
-    ctx.fillRect(cx - 20, cy - 24, 6, 14); 
-    ctx.fillRect(cx - 10, cy - 20, 6, 10); 
-
-    ctx.fillStyle = Cangrejo.ColorPinza;
-    ctx.fillRect(cx + Cangrejo.W - 2, cy + 6, 16, 26);
-    ctx.fillRect(cx + Cangrejo.W + 2, cy - 12, 18, 20);
-    ctx.fillStyle = Cangrejo.Color;
-    ctx.fillRect(cx + Cangrejo.W + 14, cy - 24, 6, 14);
-    ctx.fillRect(cx + Cangrejo.W + 4, cy - 20, 6, 10);
-
-    ctx.fillStyle = Cangrejo.Color;
-    ctx.beginPath();
-    ctx.roundRect(cx, cy + 8, Cangrejo.W, 34, 12);
-    ctx.fill();
-    
-    ctx.fillStyle = Cangrejo.ColorLaserOjo;
-    ctx.fillRect(cx + 14, cy - 4, 8, 14);
-    ctx.fillRect(cx + Cangrejo.W - 22, cy - 4, 8, 14);
-    
-    ctx.fillStyle = '#ffffff';
-    ctx.beginPath(); ctx.arc(cx + 18, cy - 6, 5, 0, Math.PI*2); ctx.fill();
-    ctx.beginPath(); ctx.arc(cx + Cangrejo.W - 18, cy - 6, 5, 0, Math.PI*2); ctx.fill();
-    ctx.fillStyle = '#000000'; 
-    ctx.beginPath(); ctx.arc(cx + 18, cy - 8, 2.5, 0, Math.PI*2); ctx.fill();
-    ctx.beginPath(); ctx.arc(cx + Cangrejo.W - 18, cy - 8, 2.5, 0, Math.PI*2); ctx.fill();
-
-    // Láseres
-    ctx.fillStyle = '#00ffff';
-    for (let laser of Lasers) {
-        ctx.fillRect(laser.X, laser.Y, laser.W, laser.H);
-        ctx.fillStyle = 'rgba(0, 255, 255, 0.4)';
-        ctx.fillRect(laser.X - 2, laser.Y, laser.W + 4, laser.H);
-        ctx.fillStyle = '#00ffff';
-    }
-
-    // Plagas
-    for (let bicho of Bichos) {
-        ctx.fillStyle = bicho.Color;
-        ctx.beginPath();
-        ctx.arc(bicho.X + bicho.W/2, bicho.Y + bicho.H/2, bicho.W/2, 0, Math.PI * 2);
-        ctx.fill();
-        
-        ctx.fillStyle = '#000000';
-        ctx.fillRect(bicho.X + 6, bicho.Y + 6, 3, 3);
-        ctx.fillRect(bicho.X + bicho.W - 9, bicho.Y + 6, 3, 3);
-        
-        if (bicho.MaxVida > 1 && bicho.Vida < bicho.MaxVida) {
-            ctx.fillStyle = '#ff0000';
-            ctx.fillRect(bicho.X, bicho.Y - 8, bicho.W, 4);
-            ctx.fillStyle = '#00ff00';
-            ctx.fillRect(bicho.X, bicho.Y - 8, bicho.W * (bicho.Vida / bicho.MaxVida), 4);
-        }
-    }
-    
-    // Game Over
-    if (!GameRunning) {
-        ctx.fillStyle = 'rgba(0, 0, 0, 0.85)';
-        ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
-        
-        ctx.fillStyle = '#ff3333';
-        ctx.font = 'bold 40px monospace';
-        ctx.textAlign = 'center';
-        ctx.fillText('¡FIN DEL JUEGO!', CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 - 20);
-        
-        ctx.fillStyle = '#ffffff';
-        ctx.font = '20px monospace';
-        ctx.fillText('Las plagas rompieron la defensa e invadieron el bancal.', CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 + 20);
-        ctx.fillStyle = '#00ffcc';
-        ctx.fillText('Puntuación Total: ' + Score + ' pts', CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 + 60);
-        ctx.font = '15px monospace';
-        ctx.fillStyle = '#aaa';
-        ctx.fillText('Presiona la tecla "R" para reiniciar la simulación', CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 + 100);
-    }
-}
-
-function GameLoop() {
-    if (GameRunning) {
-        LeerTeclado();
-        ActualizarPosiciones();
-        DetectarColisiones();
-    }
-    DibujarPantalla();
-    requestAnimationFrame(GameLoop);
-}
-
-requestAnimationFrame(GameLoop);
-</script>
 </body>
 </html>
